@@ -20,8 +20,16 @@ ones. `lab8.trace.Trace` does this; your own tracer is fine if it matches.
 
 from __future__ import annotations
 
-from lab8.schemas import RunResult
-from lab8.shapes.common import not_implemented
+import sqlite3
+from typing import Any
+
+from lab8.db import connect
+from lab8.durability import InjectedCrash, issue_refund
+from lab8.mock_llm import complete
+from lab8.runtime import run_react
+from lab8.schemas import Budget, RunResult, make_run_id
+from lab8.shapes.common import finish, safe_dump
+from lab8.trace import Trace
 
 
 def run_claim(
@@ -31,7 +39,208 @@ def run_claim(
     store_path: str,
     crash_at: str | None = None,
 ) -> RunResult:
-    # TODO CP2 (student): thay stub này bằng shape single theo các bước ở docstring đầu file.
-    # TODO CP3 (student): truyền crash_at vào durability.issue_refund, không bắt InjectedCrash.
-    del store_path, crash_at
-    return not_implemented("single", claim_id, seed)
+    conn = connect(store_path)
+    try:
+        return _run(conn, claim_id, seed=seed, crash_at=crash_at)
+    finally:
+        conn.close()
+
+
+def _run(
+    conn: sqlite3.Connection,
+    claim_id: str,
+    *,
+    seed: int,
+    crash_at: str | None,
+) -> RunResult:
+    budget = Budget()
+    run_id = make_run_id("single", claim_id, seed)
+    trace = Trace(run_id)
+    state: dict[str, Any] = {}
+
+    def decide(seen: dict[str, Any]) -> dict[str, Any]:
+        last_tool = seen.get("last_tool")
+        last_result = seen.get("last_result") or {}
+
+        # Step 1: Đọc claim view
+        if last_tool is None:
+            trace.add("react_step", {"action": "get_claim_view", "claim_id": claim_id})
+            return {"tool": "get_claim_view", "args": {"claim_id": claim_id}}
+
+        # Step 2: Kiểm tra claim tồn tại & order_id, sau đó lookup_order
+        if last_tool == "get_claim_view":
+            if not last_result.get("found"):
+                trace.add("decision", {"status": "failed", "reason": "unknown_claim"})
+                return {"final": {"status": "failed", "proposal_amount": 0, "error_reason": "unknown_claim"}}
+
+            state["claim"] = last_result
+            complete(budget, seed=seed, purpose="plan", prompt=last_result.get("ticket", ""))
+
+            if not last_result.get("order_id"):
+                complete(budget, seed=seed, purpose="draft", prompt="needs_info")
+                trace.add("decision", {"status": "needs_info", "reason": "missing_order_id"})
+                return {"final": {"status": "needs_info", "proposal_amount": 0, "error_reason": "missing_order_id"}}
+
+            trace.add("react_step", {"action": "lookup_order", "order_id": last_result["order_id"]})
+            return {
+                "tool": "lookup_order",
+                "args": {
+                    "order_id": last_result["order_id"],
+                    "principal_id": last_result["principal_id"],
+                },
+            }
+
+        # Step 3: Kiểm tra kết quả lookup_order (quyền sở hữu & tồn tại), sau đó lookup_policy
+        if last_tool == "lookup_order":
+            trace.add(
+                "tool_result",
+                {
+                    "tool": "lookup_order",
+                    "visible": last_result.get("visible"),
+                    "reason": last_result.get("reason"),
+                },
+            )
+            if not last_result.get("visible"):
+                complete(budget, seed=seed, purpose="draft", prompt="escalated")
+                return {
+                    "final": {
+                        "status": "escalated",
+                        "proposal_amount": 0,
+                        "error_reason": last_result.get("reason"),
+                    }
+                }
+
+            # Luôn lấy order từ DB (allowlisted), tuyệt đối không tin delay_days từ ticket text
+            state["order"] = dict(last_result["order"])
+            trace.add("react_step", {"action": "lookup_policy"})
+            return {"tool": "lookup_policy", "args": {}}
+
+        # Step 4: Kiểm tra lịch sử hoàn tiền của đơn hàng
+        if last_tool == "lookup_policy":
+            policies = last_result.get("policies") or []
+            trace.add("tool_result", {"tool": "lookup_policy", "policy_count": len(policies)})
+            claim = state["claim"]
+            trace.add("react_step", {"action": "lookup_refund_history", "order_id": claim["order_id"]})
+            return {
+                "tool": "lookup_refund_history",
+                "args": {
+                    "order_id": claim["order_id"],
+                    "principal_id": claim["principal_id"],
+                },
+            }
+
+        # Step 5: Tính quote bằng compute_compensation (không tự trừ phần đã hoàn trước đó)
+        if last_tool == "lookup_refund_history":
+            trace.add(
+                "tool_result",
+                {
+                    "tool": "lookup_refund_history",
+                    "refunded_vnd": last_result.get("refunded_vnd", 0),
+                },
+            )
+            trace.add("react_step", {"action": "compute_compensation"})
+            return {"tool": "compute_compensation", "args": {"order": state["order"]}}
+
+        # Step 6: Nhận quote đầy đủ và kết thúc vòng lặp ReAct
+        if last_tool == "compute_compensation":
+            proposal = int(last_result.get("amount_vnd", 0))
+            reason = last_result.get("reason")
+            trace.add("quote", safe_dump(last_result))
+            complete(budget, seed=seed, purpose="draft", prompt=f"proposal={proposal}")
+            return {
+                "final": {
+                    "status": "quote_ready",
+                    "proposal_amount": proposal,
+                    "error_reason": reason,
+                }
+            }
+
+        return {"final": {"status": "failed", "proposal_amount": 0, "error_reason": f"unexpected_tool:{last_tool}"}}
+
+    react_out = run_react(
+        conn,
+        budget,
+        observation={"claim_id": claim_id},
+        decide=decide,
+        max_steps=8,
+        worker=True,
+    )
+
+    if react_out["stopped"] == "step_cap":
+        trace.add("error", {"reason": "step_cap"})
+        return finish(
+            conn,
+            shape="single",
+            claim_id=claim_id,
+            seed=seed,
+            status="failed",
+            proposal_amount=0,
+            budget=budget,
+            trace=trace,
+            error_reason="step_cap",
+        )
+
+    final = react_out["final"]
+    status = final["status"]
+    proposal = int(final.get("proposal_amount", 0))
+    reason = final.get("error_reason")
+
+    if status in ("failed", "needs_info", "escalated"):
+        return finish(
+            conn,
+            shape="single",
+            claim_id=claim_id,
+            seed=seed,
+            status=status,
+            proposal_amount=0,
+            budget=budget,
+            trace=trace,
+            error_reason=reason,
+        )
+
+    if proposal <= 0:
+        return finish(
+            conn,
+            shape="single",
+            claim_id=claim_id,
+            seed=seed,
+            status="denied",
+            proposal_amount=0,
+            budget=budget,
+            trace=trace,
+            error_reason=reason,
+        )
+
+    # Host là người ghi duy nhất: truyền quote đầy đủ và crash_at, không bắt InjectedCrash
+    try:
+        outcome = issue_refund(conn, claim_id, proposal, crash_at=crash_at)
+    except InjectedCrash:
+        trace.add("crash", {"at": crash_at})
+        trace.write()
+        raise
+
+    if not outcome["ok"]:
+        out_status = "failed" if outcome["conflict"] else "denied"
+        return finish(
+            conn,
+            shape="single",
+            claim_id=claim_id,
+            seed=seed,
+            status=out_status,
+            proposal_amount=proposal,
+            budget=budget,
+            trace=trace,
+            error_reason=outcome["reason"],
+        )
+
+    return finish(
+        conn,
+        shape="single",
+        claim_id=claim_id,
+        seed=seed,
+        status="resolved",
+        proposal_amount=proposal,
+        budget=budget,
+        trace=trace,
+        error_reason=None,
+    )
