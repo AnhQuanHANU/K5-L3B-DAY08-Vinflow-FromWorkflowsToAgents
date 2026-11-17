@@ -17,19 +17,17 @@ Phần này nối tiếp phần mini research ở buổi lý thuyết (slide 62�
 
 | Field | Hướng dẫn | Nhóm điền |
 | --- | --- | --- |
-| CÂU | R1 / R2 / R3 / R4 | |
-| SOURCE | Paper/blog, năm, URL, loại bằng chứng (benchmark, production report, blog kinh nghiệm) | |
-| CLAIM | Một kết luận gốc của nguồn. Không viết rộng hơn phạm vi paper | |
-| BOUNDARY | Model / dataset / setup giới hạn kết luận đó | |
-| HYPOTHESIS | Nếu đổi shape A→B (hoặc bật/tắt một thành phần), metric X sẽ đổi theo hướng nào, khoảng bao nhiêu | |
-| METHOD | Biến giữ cố định: model, tools, seed, corpus, giá, evaluator. Biến duy nhất được thay đổi: … | |
-| FAILURE / METRIC | Một lỗi dự kiến và cách đo nó: pass rate, pass^5, variance, cost/success, leak, bypass | |
+| CÂU | R1 / R2 / R3 / R4 | R2 |
+| SOURCE | Paper/blog, năm, URL, loại bằng chứng (benchmark, production report, blog kinh nghiệm) | MAST, NeurIPS 2025, *Why Do Multi-Agent LLM Systems Fail?* (https://arxiv.org/abs/2503.13657), benchmark & human annotation taxonomy (κ = 0.88). |
+| CLAIM | Một kết luận gốc của nguồn. Không viết rộng hơn phạm vi paper | Các hệ thống multi-agent LLM thường thất bại ở 3 nhóm chính: lỗi thiết kế hệ thống, lệch phối hợp giữa các agent (inter-agent misalignment), và lỗi kiểm chứng nhiệm vụ (task verification). |
+| BOUNDARY | Model / dataset / setup giới hạn kết luận đó | Phân loại rút ra từ 7 framework MAS mã nguồn mở trên hơn 1600 trace; chưa trực tiếp kiểm chứng trên hệ thống có Host cưỡng chế luật bằng code cứng như LogiX-VN. |
+| HYPOTHESIS | Nếu đổi shape A→B (hoặc bật/tắt một thành phần), metric X sẽ đổi theo hướng nào, khoảng bao nhiêu | Khi chuyển từ `workflow` (không gọi model đọc ticket) sang `swarm` (có peer/parse LLM trên ticket), pass rate và `pass^5` sẽ giảm ở các seed bị nhiễu (seed % 5 == 0) do lỗi kiểm chứng dữ liệu, đồng thời `cost/success` tăng khoảng 1.7–1.8×. |
+| METHOD | Biến giữ cố định: model, tools, seed, corpus, giá, evaluator. Biến duy nhất được thay đổi: … | Giữ cố định: MockLLM, tools (`compute_compensation`, `issue_refund`), 5 seeds (`11,22,33,44,55`), corpus `data/public_claims.jsonl` (14 claims), bảng giá và evaluator. Biến duy nhất thay đổi: kiến trúc (`workflow` vs `swarm`). |
+| FAILURE / METRIC | Một lỗi dự kiến và cách đo nó: pass rate, pass^5, variance, cost/success, leak, bypass | Lỗi dự kiến: `swarm` tin số ngày trễ viết trong ticket ở seed 55 (`T02`, dẫn tới `status resolved != denied` — thuộc nhóm lỗi kiểm chứng dữ liệu). Đo bằng `pass_rate`, `pass^5`, `seed_variance`, `cost_per_success_vnd` và `reasons`. |
 
 ## Kết quả ablation
 
-- Lệnh đã chạy (copy nguyên văn):
-- Run id / file report:
-- Kết quả so với hypothesis (đúng / sai / không kết luận được), kèm số liệu:
+- Lệnh đã chạy (copy nguyên văn): `python -m lab8.benchmark --shapes workflow,single,orchestrator,swarm --cases data/public_claims.jsonl --seeds 11,22,33,44,55 --out reports/benchmark.json`
+- Run id / file report: `R-workflow-C-001-s11` (và `R-swarm-C-002-s55`) trong `src/reports/benchmark.json`
+- Kết quả so với hypothesis (đúng / sai / không kết luận được), kèm số liệu: **Đúng với giả thuyết.** `workflow` đạt `pass_rate = 1.0`, `pass^5 = 1.0`, `seed_variance = 0.0`, `cost_per_success_vnd = 27.86 VND`; trong khi `swarm` đạt `pass_rate = 0.9857` (69/70), `pass^5 = 0.9286`, `seed_variance = 0.000816`, `cost_per_success_vnd = 49.57 VND` (gấp 1.78×), fail 1 trial ở seed 55 với lý do `status resolved != denied`.
 - Giới hạn: MockLLM không phải model sản xuất, latency là `unavailable`.
-
-Muốn đi xa hơn một ablation để lấy điểm cộng thì xem [docs/bonus_topics.md](../../docs/bonus_topics.md).
