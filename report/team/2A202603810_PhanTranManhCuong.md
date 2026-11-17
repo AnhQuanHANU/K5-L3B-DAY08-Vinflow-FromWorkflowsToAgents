@@ -16,7 +16,7 @@
 
 ## 3. Đóng góp cụ thể
 
-Commit chính: `<điền hash sau khi commit>`
+Commit chính: `0009e06`
 
 **Luồng shape C**
 
