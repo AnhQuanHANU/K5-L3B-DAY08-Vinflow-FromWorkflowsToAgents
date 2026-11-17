@@ -4,8 +4,8 @@
 
 - Họ tên: Trần Phạm Minh Sơn
 - MSSV: 2A202603802
-- Email: 
-- GitHub: 
+- Email: sontpmit@gmail.com
+- GitHub: sontpm
 - Vai trò trong nhóm: Thành viên 5 — Durability & Evaluation Lead
 - Nhóm: Vinflow (Lớp L3B)
 
@@ -18,7 +18,7 @@
 
 ## 3. Đóng góp cụ thể
 
-Commit chính: `<điền hash sau khi commit>`
+Commit chính: `9f2fb18` (nhánh `sontpm`)
 
 **Kiểm tra và đối chiếu CP3 trên cả 3 shape nhóm viết**
 
