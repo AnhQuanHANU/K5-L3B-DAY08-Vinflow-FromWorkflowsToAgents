@@ -4,7 +4,7 @@
 
 - Tên nhóm: Vinflow (Lớp L3B)
 - Thành viên: xem `TEAM.md`
-- Commit chốt (trùng `report/team/decision_adr.md`): `f6093d5` (cập nhật hash mới nhất sau khi commit báo cáo CP5)
+- Commit chốt (trùng `report/team/decision_adr.md`): `d4ccefb`
 
 ## 2. Mục tiêu và cách tiếp cận
 
