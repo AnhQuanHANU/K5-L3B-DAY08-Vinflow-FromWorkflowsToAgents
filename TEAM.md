@@ -23,7 +23,7 @@
 
 | Người | Vai | Commit | Test đã thêm hoặc sửa |
 | --- | --- | --- | --- |
-| Nguyễn Anh Quân | Integration & Coordination Lead | pending_cp1 | `src/tests/test_integration_smoke.py` |
+| Nguyễn Anh Quân | Integration & Coordination Lead | 27def93 | `src/tests/test_integration_smoke.py` |
 | Nguyễn Đình Nam | Workflow Engineer | pending_cp2 | `src/tests/test_workflow_edge.py` |
 | Hồ Anh Tú | Single Agent Engineer | pending_cp2 | `src/tests/test_single_prompt_safety.py` |
 | Phan Trần Mạnh Cường | Orchestrator & Security Lead | pending_cp2 | `src/tests/test_handoff_security.py` |

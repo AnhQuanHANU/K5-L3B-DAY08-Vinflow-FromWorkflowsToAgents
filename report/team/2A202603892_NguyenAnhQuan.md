@@ -33,7 +33,7 @@
 ## 4. Bằng chứng
 
 - Repository: `https://github.com/AnhQuanHANU/K5-Day8-Vinflow-From-Workflows-to-Agents`
-- Test đã thêm: `src/tests/test_integration_smoke.py` (chạy qua pytest).
+- Test đã thêm: `src/tests/test_integration_smoke.py` (chạy qua pytest, commit `27def93`).
 - File thông tin nhóm: `TEAM.md`.
 - Kết quả smoke test CP1: `lab8.smoke pass`, `54 passed in host pytest`.
 
